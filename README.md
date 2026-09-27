@@ -96,6 +96,16 @@ tdx2db cron --dburi 'duckdb://tdx.db' --min
 3. 分时更新间隔超过 30 天时，需手动补齐后才能继续
 4. 股票代码变更不会处理历史记录
 
+**本地历史分时补录**
+
+本地已有的 1 分钟 K 线文件（`.01` 或通达信 minline `.lc1`）用 `import-min` 导入 `raw_kline_1min`；纯 Go 解析、不依赖 datatool，任何平台可用，`--minfiledir` 会递归扫描子目录（传 vipdoc 根目录即可）：
+
+```bash
+tdx2db import-min --dburi 'duckdb://tdx.db' --minfiledir /path/to/vipdoc
+```
+
+表内已有分时数据时会拒绝重复导入（防止行数翻倍），确认追加时加 `--force`。
+
 ### 全局 flag
 
 - `--temp <dir>`：临时文件父目录，留空走 `$TMPDIR`

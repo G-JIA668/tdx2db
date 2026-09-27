@@ -23,7 +23,7 @@ func ConvertFilesToCSV(ctx context.Context, inputDir string, outputFile string, 
 	switch suffix {
 	case ".day":
 		return runConversion[model.KlineDay](ctx, inputDir, outputFile, suffix, processDayFile)
-	case ".01":
+	case ".01", ".lc1": // .lc1 = 通达信本地 minline 1 分钟线，记录格式与 .01 相同
 		return runConversion[model.KlineMin](ctx, inputDir, outputFile, suffix, processMinFile)
 	default:
 		return "", fmt.Errorf("unsupported suffix: %s", suffix)

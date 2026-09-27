@@ -1,9 +1,14 @@
 package tdx
 
 import (
+	"context"
 	"encoding/binary"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseDayVolume(t *testing.T) {
@@ -126,5 +131,89 @@ func TestProcessDayFileParsesBlockBreadth(t *testing.T) {
 	}
 	if rows[0].UpCount != 36 || rows[0].DownCount != 59 {
 		t.Errorf("breadth = (%d, %d), want (36, 59)", rows[0].UpCount, rows[0].DownCount)
+	}
+}
+
+func TestProcessMinFile(t *testing.T) {
+	data := make([]byte, recordSize)
+	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
+	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
+	binary.LittleEndian.PutUint32(data[4:8], 2775)
+	binary.LittleEndian.PutUint32(data[8:12], 2800)
+	binary.LittleEndian.PutUint32(data[12:16], 2760)
+	binary.LittleEndian.PutUint32(data[16:20], 2790)
+	binary.LittleEndian.PutUint32(data[20:24], math.Float32bits(float32(12345678)))
+	binary.LittleEndian.PutUint32(data[24:28], 100000)
+
+	rows, err := processMinFile(data, "sh600000")
+	if err != nil {
+		t.Fatalf("processMinFile: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.Close != 27.9 {
+		t.Errorf("close = %f, want 27.9", row.Close)
+	}
+	if row.Volume != 100000 {
+		t.Errorf("volume = %d, want 100000", row.Volume)
+	}
+	if row.Amount != 12345678 {
+		t.Errorf("amount = %f, want 12345678", row.Amount)
+	}
+	want := time.Date(2026, 6, 24, 9, 31, 0, 0, time.Local)
+	if !row.Datetime.Equal(want) {
+		t.Errorf("datetime = %v, want %v", row.Datetime, want)
+	}
+}
+
+func TestConvertFilesToCSVSupportsLc1(t *testing.T) {
+	data := make([]byte, recordSize)
+	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
+	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
+	binary.LittleEndian.PutUint32(data[4:8], 2775)
+	binary.LittleEndian.PutUint32(data[8:12], 2775)
+	binary.LittleEndian.PutUint32(data[12:16], 2775)
+	binary.LittleEndian.PutUint32(data[16:20], 2775)
+	binary.LittleEndian.PutUint32(data[24:28], 100000)
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sh600000.lc1"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	// 干扰文件：后缀不同，不应被收集
+	if err := os.WriteFile(filepath.Join(dir, "sh600001.lc5"), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	csvPath := filepath.Join(dir, "out.csv")
+	if _, err := ConvertFilesToCSV(context.Background(), dir, csvPath, ".lc1"); err != nil {
+		t.Fatalf("ConvertFilesToCSV .lc1: %v", err)
+	}
+
+	b, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("csv lines = %d, want 2 (header + 1 row):\n%s", len(lines), b)
+	}
+	if !strings.HasPrefix(lines[0], "symbol,open,high,low,close,amount,volume,datetime") {
+		t.Errorf("header = %q", lines[0])
+	}
+	fields := strings.Split(lines[1], ",")
+	if fields[0] != "sh600000" || fields[4] != "27.75" {
+		t.Errorf("row = %q", lines[1])
+	}
+	// datetime 按 RFC3339 写出，解析回来应与输入一致
+	dt, err := time.Parse(time.RFC3339, fields[7])
+	if err != nil {
+		t.Fatalf("parse datetime %q: %v", fields[7], err)
+	}
+	want := time.Date(2026, 6, 24, 9, 31, 0, 0, time.Local)
+	if !dt.Equal(want) {
+		t.Errorf("datetime = %v, want %v", dt, want)
 	}
 }

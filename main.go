@@ -55,6 +55,7 @@ Database URI:
 
 const dayFileInfo = "通达信日线文件目录"
 const minInfo = "导入 1 分钟分时数据（可选）"
+const minFileInfo = "本地 1 分钟 K 线文件目录（.01 / .lc1，递归扫描）"
 
 func main() {
 	// 创建可取消的 context
@@ -101,6 +102,8 @@ func main() {
 		dbURI      string
 		dayFileDir string
 		minEnable  bool
+		minFileDir string
+		forceMin   bool
 	)
 
 	var initCmd = &cobra.Command{
@@ -123,6 +126,15 @@ func main() {
 		},
 	}
 
+	var importMinCmd = &cobra.Command{
+		Use:     "import-min",
+		Short:   "Import local 1-minute K-line data",
+		Example: `  tdx2db import-min --dburi 'duckdb://./tdx.db' --minfiledir /path/to/vipdoc` + dbURIHelp,
+		RunE: func(c *cobra.Command, args []string) error {
+			return cmd.ImportMin(ctx, dbURI, minFileDir, forceMin)
+		},
+	}
+
 	// Init Flags
 	initCmd.Flags().StringVar(&dbURI, "dburi", "", dbURIInfo)
 	initCmd.Flags().StringVar(&dayFileDir, "dayfiledir", "", dayFileInfo)
@@ -134,8 +146,16 @@ func main() {
 	cronCmd.MarkFlagRequired("dburi")
 	cronCmd.Flags().BoolVar(&minEnable, "min", false, minInfo)
 
+	// ImportMin Flags
+	importMinCmd.Flags().StringVar(&dbURI, "dburi", "", dbURIInfo)
+	importMinCmd.Flags().StringVar(&minFileDir, "minfiledir", "", minFileInfo)
+	importMinCmd.Flags().BoolVar(&forceMin, "force", false, "表内已有分时数据时仍强制导入（会产生重复行）")
+	importMinCmd.MarkFlagRequired("dburi")
+	importMinCmd.MarkFlagRequired("minfiledir")
+
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(cronCmd)
+	rootCmd.AddCommand(importMinCmd)
 	rootCmd.AddCommand(versionCmd)
 
 	cobra.OnFinalize(func() {

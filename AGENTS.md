@@ -46,6 +46,7 @@ Current schema version: **v4.0** (`model.SchemaMajor=4, SchemaMinor=0`). The `_m
 | Task | type | workflow/engine.go:46 | Task definition with dependencies |
 | TaskExecutor | type | workflow/engine.go:66 | DAG-based task execution |
 | Init | func | cmd/init.go | Full import via workflow |
+| ImportMin | func | cmd/import_min.go | 本地 1 分钟 K 线补录 (.01/.lc1)，无 datatool 依赖 |
 | Cron | func | cmd/cron.go:11 | Incremental update via workflow |
 | CalculateBasicDaily | func | calc/basic.go:115 | Core basic calculation (preclose/turnover/MV, stock+ETF) |
 | calculateFullHfq | func | calc/fq_quantaxis.go:86 | Core HFQ factor calculation |
@@ -207,13 +208,16 @@ tdx2db cron --dburi 'clickhouse://localhost'
 
 # Full init from TDX day files
 tdx2db init --dburi 'clickhouse://localhost' --dayfiledir /path/to/vipdoc/
+
+# Import local 1-minute K-line history (.01 / .lc1, recursive scan)
+tdx2db import-min --dburi 'duckdb://tdx.db' --minfiledir /path/to/vipdoc
 ```
 
 ## NOTES
 
 **Gotchas:**
 - 复权因子算法 based on QUANTAXIS — verify before modifying
-- 分时数据无历史 — need to backfill manually
+- 分时数据无历史 — 用 `import-min` 补录本地 `.01`/`.lc1` 文件（cron --min 只下载官网近期 tic，仍需 datatool）
 - Symbol code changes not handled (历史记录不更新)
 - 指数/板块 (sh000xxx, sz399xxx, sh880/881xxx) 不在 calc 输出范围内（GetSymbolsByClass 只取 stock + etf）
 - ETF/LOF/B股 K线价格按 0.001 元解析 (`PriceScale`)，否则有 10x 偏差；新增品种前缀时务必检查
