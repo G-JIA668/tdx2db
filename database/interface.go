@@ -28,6 +28,8 @@ type DataRepository interface {
 
 	TruncateTable(meta *model.TableMeta) error
 	Query(table string, conditions map[string]interface{}, dest interface{}) error
+	// QueryRaw 执行原生 SQL 查询（只读诊断用），args 为 ? 占位符参数。
+	QueryRaw(query string, dest interface{}, args ...interface{}) error
 	QueryKlineDaily(symbol string, startDate, endDate *time.Time) ([]model.KlineDay, error)
 	GetLatestDate(tableName string, dateCol string) (time.Time, error)
 	GetMinDate(tableName string, dateCol string) (time.Time, error)

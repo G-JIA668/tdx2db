@@ -9,6 +9,10 @@ import (
 	"github.com/jing2uo/tdx2db/model"
 )
 
+func (d *DuckDBDriver) QueryRaw(query string, dest interface{}, args ...interface{}) error {
+	return d.db.Select(dest, query, args...)
+}
+
 func (d *DuckDBDriver) Query(table string, conditions map[string]interface{}, dest interface{}) error {
 	query := fmt.Sprintf("SELECT * FROM %s", table)
 	args := []interface{}{}

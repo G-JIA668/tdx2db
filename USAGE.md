@@ -10,6 +10,7 @@
 | `tdx2db import-min` | 补录本地**1 分钟分时**历史（本项目新增） | 本地 `.01` / `.lc1` 文件 | 全平台，纯 Go 解析 |
 | `tdx2db cron` | 每日增量：日线 + 股本变迁 + 假期 + 在线板块/代码名称 + 重算前收盘价/复权因子 | 通达信官网 + OpenTDX 在线接口 | 全平台 |
 | `tdx2db cron --min` | `cron` 的超集，额外下载并导入**当日 1 分钟分时** | 官网 g4tic 归档（仅近期） | **仅 Linux amd64**（需 datatool） |
+| `tdx2db check` | 数据完整性体检：检查全部品种近 N 年日线 / 近 M 个月分时的覆盖情况，生成浏览器红绿网格 HTML 报告 | 本地数据库（只读） | 全平台 |
 | `tdx2db version` | 打印版本信息 | — | — |
 
 全局 flag：`--temp <dir>` 指定临时文件父目录（默认 `$TMPDIR`，容量不足时用它兜底）。
@@ -103,7 +104,33 @@ tdx2db import-min --dburi 'duckdb://tdx.db' --minfiledir /path/to/vipdoc --force
 duckdb tdx.db "DELETE FROM raw_kline_1min WHERE rowid NOT IN (SELECT min(rowid) FROM raw_kline_1min GROUP BY symbol, datetime)"
 ```
 
-## 五、表与视图
+## 五、数据完整性检查（check）
+
+下载不全 / 忘记更新会导致数据出现一段或多段缺失，`check` 生成单文件 HTML 报告（无外部依赖，浏览器直接打开）：
+
+```bash
+tdx2db check --dburi 'duckdb://tdx.db' --out tdx2db-report.html [--years 3] [--minmonths 3]
+```
+
+报告内容：
+
+- **红绿网格**：每行一个品种，列 = 股票ID / 名称 / 满足度 + 每个交易日一列
+  - 日线：绿=有数据，红=缺失
+  - 分时：绿=完整（≥240 分钟），黄=部分（1~239 分钟，悬停可见分钟数），红=无
+  - 灰=窗口外（品种上市晚于窗口起点，不判缺失）
+- **满足度** = 窗口内有数据的交易日占比（绿 ≥98%、黄 ≥90%、红）
+- 点击行 → 该品种的全部**缺失区段**（如 `2026-03-05 ~ 2026-03-12（6 个交易日）`）
+- **市场级缺失日 TOP**：某日缺失的品种越多，越像整段下载缺失
+- **历史截断警告**：多数品种首个数据日一致且晚于窗口起点时提示"疑似未导入完整历史"
+- 交互：日线/分时切换、只显示有缺口的品种（默认开）、搜索、拖拽表头缩放日期区间
+
+注意：
+
+1. `check` 是**只读诊断**，不修改被检查的库；`raw_holidays` 为空时按纯工作日检查并给出警告（法定假日会被误标为缺失）
+2. **停牌**期间无行情 bar，个别品种孤立的红可能是停牌而非缺失——市场级缺失日才是下载问题的特征
+3. 检查窗口终点是"昨天"：今天不算缺失（当天数据可能尚未导入）
+
+## 六、表与视图
 
 | 表 / 视图 | 说明 |
 | :--- | :--- |
@@ -119,7 +146,7 @@ duckdb tdx.db "DELETE FROM raw_kline_1min WHERE rowid NOT IN (SELECT min(rowid) 
 | `_meta` | schema 版本等元信息 |
 | `v_stock_{bfq,qfq,hfq}` / `v_etf_{bfq,qfq,hfq}` | 复权视图（不复权/前复权/后复权） |
 
-## 六、常见坑
+## 七、常见坑
 
 1. **init ≠ 全部**：`init` 只导日线；不跑 `cron` 就没有 preclose、换手率、复权因子
 2. **裸 go build 没有分时增量**：`cron --min` 需要 `make build`（嵌入 datatool），否则静默跳过转档

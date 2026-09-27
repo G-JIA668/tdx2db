@@ -99,11 +99,14 @@ func main() {
 	}
 
 	var (
-		dbURI      string
-		dayFileDir string
-		minEnable  bool
-		minFileDir string
-		forceMin   bool
+		dbURI         string
+		dayFileDir    string
+		minEnable     bool
+		minFileDir    string
+		forceMin      bool
+		checkOut      string
+		checkYears    int
+		checkMinMonth int
 	)
 
 	var initCmd = &cobra.Command{
@@ -135,6 +138,15 @@ func main() {
 		},
 	}
 
+	var checkCmd = &cobra.Command{
+		Use:     "check",
+		Short:   "Check data completeness and generate an HTML report",
+		Example: `  tdx2db check --dburi 'duckdb://./tdx.db' --out tdx2db-report.html` + dbURIHelp,
+		RunE: func(c *cobra.Command, args []string) error {
+			return cmd.Check(ctx, dbURI, checkOut, checkYears, checkMinMonth)
+		},
+	}
+
 	// Init Flags
 	initCmd.Flags().StringVar(&dbURI, "dburi", "", dbURIInfo)
 	initCmd.Flags().StringVar(&dayFileDir, "dayfiledir", "", dayFileInfo)
@@ -153,9 +165,17 @@ func main() {
 	importMinCmd.MarkFlagRequired("dburi")
 	importMinCmd.MarkFlagRequired("minfiledir")
 
+	// Check Flags
+	checkCmd.Flags().StringVar(&dbURI, "dburi", "", dbURIInfo)
+	checkCmd.Flags().StringVar(&checkOut, "out", "tdx2db-report.html", "报告输出路径")
+	checkCmd.Flags().IntVar(&checkYears, "years", 3, "日线检查窗口（年）")
+	checkCmd.Flags().IntVar(&checkMinMonth, "minmonths", 3, "分时检查窗口（月）")
+	checkCmd.MarkFlagRequired("dburi")
+
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(cronCmd)
 	rootCmd.AddCommand(importMinCmd)
+	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(versionCmd)
 
 	cobra.OnFinalize(func() {
