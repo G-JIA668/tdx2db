@@ -50,6 +50,8 @@ sudo mv tdx2db /usr/local/bin/ && tdx2db -h
 
 ## 使用
 
+> 完整用法总结（含本地分时补录 `import-min`、分时断更恢复）见 [USAGE.md](USAGE.md)。
+
 ### 初始化
 
 首次需全量导入历史数据，从[通达信券商数据](https://www.tdx.com.cn/article/vipdata.html)下载 **沪深京日线数据完整包**：
