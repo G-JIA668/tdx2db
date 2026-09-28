@@ -2,3 +2,6 @@ tdx2db
 datatool
 datatool.exe
 .tmp
+
+# Local Claude Code config (machine-specific)
+.claude/
