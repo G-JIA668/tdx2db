@@ -218,6 +218,7 @@ tdx2db import-min --dburi 'duckdb://tdx.db' --minfiledir /path/to/vipdoc
 **Gotchas:**
 - 复权因子算法 based on QUANTAXIS — verify before modifying
 - 分时数据无历史 — 用 `import-min` 补录本地 `.01`/`.lc1` 文件（cron --min 只下载官网近期 tic，仍需 datatool）
+- cron 的"日线已是最新"只看 max(date)、不验证当日完整性；从客户端 vipdoc 误导入盘中半截数据会造成残缺日永久挡住补全（详见 USAGE.md 第八节排查记录，修复=删该日三表数据重跑 cron）
 - Symbol code changes not handled (历史记录不更新)
 - 指数/板块 (sh000xxx, sz399xxx, sh880/881xxx) 不在 calc 输出范围内（GetSymbolsByClass 只取 stock + etf）
 - ETF/LOF/B股 K线价格按 0.001 元解析 (`PriceScale`)，否则有 10x 偏差；新增品种前缀时务必检查

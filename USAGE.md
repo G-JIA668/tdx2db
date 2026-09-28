@@ -154,3 +154,37 @@ tdx2db check --dburi 'duckdb://tdx.db' --out tdx2db-report.html [--years 3] [--m
 4. **分时无法重建**：日线可以从官网重新下载，分时不行——导入后请保留原始数据并定期备份
 5. **重复导入**：`raw_kline_1min` 无唯一约束，`import-min` 默认防呆拒绝；`--force` 前确认你清楚重叠区间会翻倍
 6. **股票代码变更**：历史记录不会随代码变更更新
+
+## 八、事件排查记录
+
+### 2026-09-28 日线残缺事件（当日只有 60 个品种）
+
+**现象**：`cron` 一直显示"日线已是最新 (2026-09-28)"，但 `raw_kline_daily` 里 09-28 只有 60 行（正常一个交易日约 9400+ 行）。
+
+**根因链**：
+
+1. 通达信客户端在**收盘前**（14:14-14:20）做增量同步，把当天不完整的数据写入了本地 vipdoc——只有 60 个品种：59 只无成交 LOF 的占位 bar（OHLC=1.0、成交量=0，TDX 官方对无成交基金即发此 bar）+ 1 只新上市 ETF 的真实 bar
+2. 当天库的日线表被从**客户端 vipdoc 目录**重新导入过一次（Windows 侧操作），快照带入了这 60 行盘中半截数据；同时历史深度退化为客户端保留范围（约 2021 年起，sh600000 仅 1250 条 vs 全量包 6395 条）
+3. `cron` 的"已是最新"判定只看 `max(date)`（`dailyLatest.Before(LastTradingDay)`，见 workflow/plan.go），看到 09-28 已有数据就永远跳过下载——**残缺的一天永久挡住补全**
+
+**诊断方法**（可复用的排查思路）：
+
+- 逐日行数分布：`SELECT date, count(*) FROM raw_kline_daily WHERE date >= ... GROUP BY date` —— 09-28=60 vs 相邻日 ~9400，异常一目了然
+- 残缺行内容比对：占位 bar（1.0/0）与本地 vipdoc 文件逐字节一致 → 数据来源是客户端文件而非官网 zip
+- 文件时间戳：vipdoc 中相关 .day 文件的 mtime 落在收盘前 → 客户端盘中同步
+- 历史深度比对：库中 sh600000 行数与客户端文件行数一致（1250 条）→ 库被客户端数据重建过
+- 无重复行（`GROUP BY date, symbol HAVING count(*)>1` 为空）→ 排除"整目录重复导入"假设
+
+**修复**：删除残缺日三张表的数据 → 重跑 `cron` 重新下载完整日线：
+
+```sql
+DELETE FROM raw_kline_daily   WHERE date = DATE '2026-09-28';
+DELETE FROM raw_basic_daily   WHERE date = DATE '2026-09-28';
+DELETE FROM raw_adjust_factor WHERE date = DATE '2026-09-28';
+```
+
+**教训**：
+
+- 不要在**收盘前**从通达信客户端 vipdoc 导入数据（客户端盘中同步只写入部分品种）
+- 用全量包（hsjday）初始化的库才是完整历史；从客户端 vipdoc 导入的库历史只有客户端保留的约 5 年
+- `cron` 的 max(date) 检查不验证当日完整性——数据健康靠 `check` 报告的逐日行数/市场级缺失日人工监控（完整性检查的代码修复暂缓）
