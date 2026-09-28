@@ -62,8 +62,9 @@ func Check(ctx context.Context, dbURI, outPath string, years, minMonths int) err
 	}
 	cal := workflow.NewTradingCalendar(holidays)
 
-	// 检查窗口：起点 = today - N 年/月；终点 = 昨天的最近交易日（今天永远不判缺失）。
-	end := cal.LastTradingDayOnOrBefore(today.AddDate(0, 0, -1))
+	// 检查窗口：起点 = today - N 年/月；终点 = 今天之前（含今天）的最近交易日。
+	// 今天尚未导入会整列标红，直观提示补跑 cron；导入后即正常计绿。
+	end := cal.LastTradingDayOnOrBefore(today)
 	dailyDays := tradingDays(cal, today.AddDate(-years, 0, 0), end)
 	minDays := tradingDays(cal, today.AddDate(0, -minMonths, 0), end)
 	fmt.Printf("📅 日线窗口 %s ~ %s（%d 个交易日）\n", dailyDays[0], dailyDays[len(dailyDays)-1], len(dailyDays))
