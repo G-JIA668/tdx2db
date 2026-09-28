@@ -168,6 +168,52 @@ func TestProcessMinFile(t *testing.T) {
 	}
 }
 
+func TestCollectAndConvertFileList(t *testing.T) {
+	data := make([]byte, recordSize)
+	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
+	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
+	binary.LittleEndian.PutUint32(data[4:8], 2775)
+	binary.LittleEndian.PutUint32(data[8:12], 2775)
+	binary.LittleEndian.PutUint32(data[12:16], 2775)
+	binary.LittleEndian.PutUint32(data[16:20], 2775)
+	binary.LittleEndian.PutUint32(data[24:28], 100000)
+
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sh", "minline")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"sh600001.lc1", "sh600000.lc1", "sh600002.lc5"} {
+		if err := os.WriteFile(filepath.Join(sub, f), data, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	files, err := CollectKlineFiles(dir, ".lc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %d, want 2 (.lc5 不应被收集)", len(files))
+	}
+	if !strings.HasSuffix(files[0], "sh600000.lc1") || !strings.HasSuffix(files[1], "sh600001.lc1") {
+		t.Fatalf("files not sorted: %v", files)
+	}
+
+	csvPath := filepath.Join(dir, "out.csv")
+	if _, err := ConvertFileListToCSV(context.Background(), files, csvPath, ".lc1"); err != nil {
+		t.Fatalf("ConvertFileListToCSV: %v", err)
+	}
+	b, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 3 { // header + 2 rows
+		t.Fatalf("csv lines = %d, want 3:\n%s", len(lines), b)
+	}
+}
+
 func TestConvertFilesToCSVSupportsLc1(t *testing.T) {
 	data := make([]byte, recordSize)
 	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624

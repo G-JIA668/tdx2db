@@ -70,23 +70,47 @@ func ImportMin(ctx context.Context, dbURI, minFileDir string, force bool) error 
 	return nil
 }
 
-// importMinSuffix 转换并导入指定后缀的分时文件，返回目录下是否存在该后缀文件。
-func importMinSuffix(ctx context.Context, db database.DataRepository, minFileDir, suffix string) (bool, error) {
-	fmt.Printf("🐌 开始转换分时数据 (%s)\n", suffix)
-	csvPath := filepath.Join(TempDir, "1min-"+strings.TrimPrefix(suffix, ".")+".csv")
-	_, err := tdx.ConvertFilesToCSV(ctx, minFileDir, csvPath, suffix)
-	if err != nil {
-		return false, fmt.Errorf("failed to convert %s files to csv: %w", suffix, err)
-	}
+// minBatchFiles 是 importMinSuffix 每批转换/导入的文件数。
+// 全量一次性转换（5GB+ 源数据 → 同量级 CSV 与内存占用）会吃爆 DuckDB/WSL 内存，
+// 分批 + 批间删除 CSV 把峰值控制在单批规模（约 150MB 源数据）。
+const minBatchFiles = 300
 
-	// ConvertFilesToCSV 在目录下无匹配文件时不创建 CSV（提前返回），跳过导入。
-	if _, err := os.Stat(csvPath); err != nil {
+// importMinSuffix 分批转换并导入指定后缀的分时文件，返回目录下是否存在该后缀文件。
+func importMinSuffix(ctx context.Context, db database.DataRepository, minFileDir, suffix string) (bool, error) {
+	files, err := tdx.CollectKlineFiles(minFileDir, suffix)
+	if err != nil {
+		return false, fmt.Errorf("failed to collect %s files: %w", suffix, err)
+	}
+	if len(files) == 0 {
 		fmt.Printf("🌲 目录下无 %s 文件，跳过\n", suffix)
 		return false, nil
 	}
 
-	if err := db.ImportKline1Min(csvPath); err != nil {
-		return false, fmt.Errorf("failed to import 1min csv: %w", err)
+	fmt.Printf("🐌 开始转换分时数据 (%s，%d 个文件，每批 %d 个)\n", suffix, len(files), minBatchFiles)
+	for start := 0; start < len(files); start += minBatchFiles {
+		select {
+		case <-ctx.Done():
+			return true, ctx.Err()
+		default:
+		}
+
+		end := start + minBatchFiles
+		if end > len(files) {
+			end = len(files)
+		}
+		csvPath := filepath.Join(TempDir,
+			fmt.Sprintf("1min-%s-%d.csv", strings.TrimPrefix(suffix, "."), start/minBatchFiles))
+		if _, err := tdx.ConvertFileListToCSV(ctx, files[start:end], csvPath, suffix); err != nil {
+			return true, fmt.Errorf("failed to convert %s files to csv: %w", suffix, err)
+		}
+		if err := db.ImportKline1Min(csvPath); err != nil {
+			return true, fmt.Errorf("failed to import 1min csv: %w", err)
+		}
+		// 及时释放临时 CSV，避免撑大 WSL 虚拟磁盘（ext4.vhdx 在 C 盘）
+		if err := os.Remove(csvPath); err != nil {
+			fmt.Printf("⚠️  清理临时 CSV 失败: %v\n", err)
+		}
+		fmt.Printf("📊 已导入 %d/%d 个文件\n", end, len(files))
 	}
 	return true, nil
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,11 +21,21 @@ const (
 )
 
 func ConvertFilesToCSV(ctx context.Context, inputDir string, outputFile string, suffix string) (string, error) {
+	files, err := collectFiles(inputDir, suffix)
+	if err != nil {
+		return "", err
+	}
+	return ConvertFileListToCSV(ctx, files, outputFile, suffix)
+}
+
+// ConvertFileListToCSV 将指定文件列表转换成一个 CSV。
+// 供调用方自行分批（大目录一次性转换会把内存吃爆，见 import-min 的分批导入）。
+func ConvertFileListToCSV(ctx context.Context, files []string, outputFile string, suffix string) (string, error) {
 	switch suffix {
 	case ".day":
-		return runConversion[model.KlineDay](ctx, inputDir, outputFile, suffix, processDayFile)
+		return runConversion[model.KlineDay](ctx, files, outputFile, suffix, processDayFile)
 	case ".01", ".lc1": // .lc1 = 通达信本地 minline 1 分钟线，记录格式与 .01 相同
-		return runConversion[model.KlineMin](ctx, inputDir, outputFile, suffix, processMinFile)
+		return runConversion[model.KlineMin](ctx, files, outputFile, suffix, processMinFile)
 	default:
 		return "", fmt.Errorf("unsupported suffix: %s", suffix)
 	}
@@ -32,16 +43,11 @@ func ConvertFilesToCSV(ctx context.Context, inputDir string, outputFile string, 
 
 func runConversion[T any](
 	ctx context.Context,
-	inputDir string,
+	files []string,
 	outputFile string,
 	suffix string,
 	parser func([]byte, string) ([]T, error),
 ) (string, error) {
-
-	files, err := collectFiles(inputDir, suffix)
-	if err != nil {
-		return "", err
-	}
 
 	if len(files) == 0 {
 		return outputFile, nil
@@ -242,6 +248,11 @@ func parseDateTime(dateRaw, timeRaw uint16) (time.Time, error) {
 
 var symbolPattern = regexp.MustCompile(`^(sh|sz|bj)\d+$`)
 
+// CollectKlineFiles 收集目录树下指定后缀的 K 线文件（路径升序，保证分批稳定）。
+func CollectKlineFiles(root string, suffix string) ([]string, error) {
+	return collectFiles(root, suffix)
+}
+
 func collectFiles(root string, suffix string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -257,5 +268,6 @@ func collectFiles(root string, suffix string) ([]string, error) {
 		}
 		return nil
 	})
+	sort.Strings(files)
 	return files, err
 }
