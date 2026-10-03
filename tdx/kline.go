@@ -34,8 +34,13 @@ func ConvertFileListToCSV(ctx context.Context, files []string, outputFile string
 	switch suffix {
 	case ".day":
 		return runConversion[model.KlineDay](ctx, files, outputFile, suffix, processDayFile)
-	case ".01", ".lc1": // .lc1 = 通达信本地 minline 1 分钟线，记录格式与 .01 相同
-		return runConversion[model.KlineMin](ctx, files, outputFile, suffix, processMinFile)
+	case ".01":
+		// .01 = datatool 转档输出：OHLC 为整数价格（×PriceScale），与 .day 同编码。
+		return runConversion[model.KlineMin](ctx, files, outputFile, suffix, processMinFileInt)
+	case ".lc1":
+		// .lc1 = 通达信客户端本地 minline：同样 32 字节记录，但 OHLC 是 float32 原值。
+		// 两种编码混用同一解析会把 float32 位型当整数除刻度（价格放大 ~1.2e6 倍）。
+		return runConversion[model.KlineMin](ctx, files, outputFile, suffix, processMinFileFloat)
 	default:
 		return "", fmt.Errorf("unsupported suffix: %s", suffix)
 	}
@@ -163,7 +168,17 @@ func processDayFile(data []byte, symbol string) ([]model.KlineDay, error) {
 	return rows, nil
 }
 
-func processMinFile(data []byte, symbol string) ([]model.KlineMin, error) {
+// processMinFileInt 解析 .01（datatool 输出）：OHLC 为整数价格，除以 PriceScale。
+func processMinFileInt(data []byte, symbol string) ([]model.KlineMin, error) {
+	return parseMinFile(data, symbol, false)
+}
+
+// processMinFileFloat 解析 .lc1（通达信客户端 minline）：OHLC 为 float32 原值。
+func processMinFileFloat(data []byte, symbol string) ([]model.KlineMin, error) {
+	return parseMinFile(data, symbol, true)
+}
+
+func parseMinFile(data []byte, symbol string, floatPrices bool) ([]model.KlineMin, error) {
 	n := len(data)
 	if n%recordSize != 0 {
 		return nil, fmt.Errorf("invalid file size: %d", n)
@@ -193,12 +208,25 @@ func processMinFile(data []byte, symbol string) ([]model.KlineMin, error) {
 			continue
 		}
 
+		var open, high, low, close float64
+		if floatPrices {
+			open = float64(math.Float32frombits(openRaw))
+			high = float64(math.Float32frombits(highRaw))
+			low = float64(math.Float32frombits(lowRaw))
+			close = float64(math.Float32frombits(closeRaw))
+		} else {
+			open = float64(openRaw) / scale
+			high = float64(highRaw) / scale
+			low = float64(lowRaw) / scale
+			close = float64(closeRaw) / scale
+		}
+
 		rows = append(rows, model.KlineMin{
 			Symbol:   symbol,
-			Open:     float64(openRaw) / scale,
-			High:     float64(highRaw) / scale,
-			Low:      float64(lowRaw) / scale,
-			Close:    float64(closeRaw) / scale,
+			Open:     open,
+			High:     high,
+			Low:      low,
+			Close:    close,
 			Amount:   float64(amount),
 			Volume:   int64(volRaw),
 			Datetime: t,

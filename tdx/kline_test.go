@@ -134,7 +134,8 @@ func TestProcessDayFileParsesBlockBreadth(t *testing.T) {
 	}
 }
 
-func TestProcessMinFile(t *testing.T) {
+func TestProcessMinFileInt(t *testing.T) {
+	// .01（datatool 输出）：OHLC 为整数价格，需除以 PriceScale。
 	data := make([]byte, recordSize)
 	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
 	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
@@ -145,7 +146,7 @@ func TestProcessMinFile(t *testing.T) {
 	binary.LittleEndian.PutUint32(data[20:24], math.Float32bits(float32(12345678)))
 	binary.LittleEndian.PutUint32(data[24:28], 100000)
 
-	rows, err := processMinFile(data, "sh600000")
+	rows, err := processMinFileInt(data, "sh600000")
 	if err != nil {
 		t.Fatalf("processMinFile: %v", err)
 	}
@@ -168,14 +169,45 @@ func TestProcessMinFile(t *testing.T) {
 	}
 }
 
+func TestMinPriceEncodingDifference(t *testing.T) {
+	// 同一段字节（float32 位型 9.0 = 0x41100000）在两种编码下的解读：
+	// .lc1（客户端 minline）应为 9.0；.01（datatool 整数价格）应为 0x41100000/100。
+	// 混用曾导致真实 .lc1 价格被放大 ~1.2e6 倍（2026-09-24 事件）。
+	data := make([]byte, recordSize)
+	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+9*100+24) // 20260924
+	binary.LittleEndian.PutUint16(data[2:4], 14*60+58)                  // 14:58
+	bits := math.Float32bits(float32(9.0))
+	binary.LittleEndian.PutUint32(data[4:8], bits)
+	binary.LittleEndian.PutUint32(data[8:12], bits)
+	binary.LittleEndian.PutUint32(data[12:16], bits)
+	binary.LittleEndian.PutUint32(data[16:20], bits)
+	binary.LittleEndian.PutUint32(data[24:28], 6900)
+
+	rows, err := processMinFileFloat(data, "sh600000")
+	if err != nil {
+		t.Fatalf("processMinFileFloat: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Close != 9.0 {
+		t.Fatalf("float parse rows = %+v, want close 9.0", rows)
+	}
+
+	rows, err = processMinFileInt(data, "sh600000")
+	if err != nil {
+		t.Fatalf("processMinFileInt: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Close != float64(bits)/100 {
+		t.Fatalf("int parse rows = %+v, want close %f", rows, float64(bits)/100)
+	}
+}
+
 func TestCollectAndConvertFileList(t *testing.T) {
 	data := make([]byte, recordSize)
 	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
 	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
-	binary.LittleEndian.PutUint32(data[4:8], 2775)
-	binary.LittleEndian.PutUint32(data[8:12], 2775)
-	binary.LittleEndian.PutUint32(data[12:16], 2775)
-	binary.LittleEndian.PutUint32(data[16:20], 2775)
+	binary.LittleEndian.PutUint32(data[4:8], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[8:12], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[12:16], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[16:20], math.Float32bits(float32(27.75)))
 	binary.LittleEndian.PutUint32(data[24:28], 100000)
 
 	dir := t.TempDir()
@@ -218,10 +250,10 @@ func TestConvertFilesToCSVSupportsLc1(t *testing.T) {
 	data := make([]byte, recordSize)
 	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
 	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)                   // 09:31
-	binary.LittleEndian.PutUint32(data[4:8], 2775)
-	binary.LittleEndian.PutUint32(data[8:12], 2775)
-	binary.LittleEndian.PutUint32(data[12:16], 2775)
-	binary.LittleEndian.PutUint32(data[16:20], 2775)
+	binary.LittleEndian.PutUint32(data[4:8], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[8:12], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[12:16], math.Float32bits(float32(27.75)))
+	binary.LittleEndian.PutUint32(data[16:20], math.Float32bits(float32(27.75)))
 	binary.LittleEndian.PutUint32(data[24:28], 100000)
 
 	dir := t.TempDir()
