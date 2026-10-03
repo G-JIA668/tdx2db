@@ -168,6 +168,11 @@ func processDayFile(data []byte, symbol string) ([]model.KlineDay, error) {
 	return rows, nil
 }
 
+// roundToScale 按价格刻度四舍五入到最小变动单位（scale=100 → 0.01 元，scale=1000 → 0.001 元）。
+func roundToScale(v, scale float64) float64 {
+	return math.Round(v*scale) / scale
+}
+
 // processMinFileInt 解析 .01（datatool 输出）：OHLC 为整数价格，除以 PriceScale。
 func processMinFileInt(data []byte, symbol string) ([]model.KlineMin, error) {
 	return parseMinFile(data, symbol, false)
@@ -210,10 +215,12 @@ func parseMinFile(data []byte, symbol string, floatPrices bool) ([]model.KlineMi
 
 		var open, high, low, close float64
 		if floatPrices {
-			open = float64(math.Float32frombits(openRaw))
-			high = float64(math.Float32frombits(highRaw))
-			low = float64(math.Float32frombits(lowRaw))
-			close = float64(math.Float32frombits(closeRaw))
+			// float32 存储带尾数误差（如 8.99 → 8.989999771118164），
+			// 按价格刻度四舍五入到最小变动单位（股票 0.01 元，ETF/LOF/B股 0.001 元）。
+			open = roundToScale(float64(math.Float32frombits(openRaw)), scale)
+			high = roundToScale(float64(math.Float32frombits(highRaw)), scale)
+			low = roundToScale(float64(math.Float32frombits(lowRaw)), scale)
+			close = roundToScale(float64(math.Float32frombits(closeRaw)), scale)
 		} else {
 			open = float64(openRaw) / scale
 			high = float64(highRaw) / scale

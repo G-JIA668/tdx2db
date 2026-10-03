@@ -200,6 +200,29 @@ func TestMinPriceEncodingDifference(t *testing.T) {
 	}
 }
 
+func TestMinFloatPriceRoundedToScale(t *testing.T) {
+	// float32 尾数误差（8.99 → 8.989999771118164）应按刻度舍入为 8.99。
+	data := make([]byte, recordSize)
+	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+9*100+24)
+	binary.LittleEndian.PutUint16(data[2:4], 9*60+31)
+	binary.LittleEndian.PutUint32(data[4:8], math.Float32bits(float32(8.99)))
+	binary.LittleEndian.PutUint32(data[8:12], math.Float32bits(float32(8.99)))
+	binary.LittleEndian.PutUint32(data[12:16], math.Float32bits(float32(8.99)))
+	binary.LittleEndian.PutUint32(data[16:20], math.Float32bits(float32(8.99)))
+
+	rows, err := processMinFileFloat(data, "sh600000")
+	if err != nil {
+		t.Fatalf("processMinFileFloat: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	// 必须精确等于 8.99（刻度 100 → 2 位小数），不允许 float32 尾数残留
+	if rows[0].Close != 8.99 || rows[0].Open != 8.99 {
+		t.Fatalf("close = %v open = %v, want exact 8.99", rows[0].Close, rows[0].Open)
+	}
+}
+
 func TestCollectAndConvertFileList(t *testing.T) {
 	data := make([]byte, recordSize)
 	binary.LittleEndian.PutUint16(data[0:2], (2026-2004)*2048+6*100+24) // 20260624
